@@ -1,7 +1,7 @@
---// ADOPT ME AUTO-TRADE – HACKER UI + FIXED BATCHING
+--// ADOPT ME AUTO-TRADE – 18-PET BATCH + UI RESET
 --// DevEx32/Auto-Trade | TradeSpecific.lua
 
-if not getgenv().Config then error("Set getgenv().Config first!") end
+if not getgenv().Config then error("Set getgenv().Config!") end
 local C = getgenv().Config
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -9,7 +9,7 @@ local Http = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local LP = Players.LocalPlayer
 
--- ===== DE-HASH (your original) =====
+-- ===== DE-HASH =====
 local function dehash()
     local rename = function(n,r) r.Name = n end
     table.foreach(getupvalue(require(RS.ClientModules.Core.RouterClient.RouterClient).init,7),rename)
@@ -22,7 +22,7 @@ local AddItem   = API:WaitForChild("TradeAPI/AddItemToOffer")
 local AcceptNeg = API:WaitForChild("TradeAPI/AcceptNegotiation")
 local Confirm   = API:WaitForChild("TradeAPI/ConfirmTrade")
 
--- ===== WEBHOOK (all executors) =====
+-- ===== WEBHOOK =====
 local function webhook(t,d,c)
     if not C.Webhook or C.Webhook == "" then return end
     spawn(function()
@@ -53,17 +53,16 @@ local function collectIds()
     return ids
 end
 
--- ===== HACKER UI (compact + gradient) =====
+-- ===== HACKER UI (per round: 0/18) =====
 local SG = Instance.new("ScreenGui", CoreGui); SG.ResetOnSpawn = false
 local Main = Instance.new("Frame", SG)
-Main.Size = UDim2.new(0, 320, 0, 140)
-Main.Position = UDim2.new(0.5, -160, 0.5, -70)
+Main.Size = UDim2.new(0, 320, 0, 160)
+Main.Position = UDim2.new(0.5, -160, 0.5, -80)
 Main.BackgroundTransparency = 0.2
 Main.BackgroundColor3 = Color3.fromRGB(10,10,10)
 Main.BorderSizePixel = 0
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0,12)
 
--- Gradient
 local Grad = Instance.new("UIGradient", Main)
 Grad.Color = ColorSequence.new{
     ColorSequenceKeypoint.new(0, Color3.fromRGB(0,255,0)),
@@ -83,30 +82,47 @@ Target.BackgroundTransparency = 1; Target.TextXAlignment = Enum.TextXAlignment.L
 Target.TextColor3 = Color3.fromRGB(200,255,200); Target.Font = Enum.Font.Code
 Target.Text = "Target: "..C.usernames[1]
 
-local BarBack = Instance.new("Frame", Main)
-BarBack.Position = UDim2.new(0,12,0,70); BarBack.Size = UDim2.new(1,-24,0,20)
-BarBack.BackgroundColor3 = Color3.fromRGB(30,30,30); BarBack.BorderSizePixel = 0
-Instance.new("UICorner", BarBack).CornerRadius = UDim.new(0,8)
+local RoundBar = Instance.new("Frame", Main)
+RoundBar.Position = UDim2.new(0,12,0,70); RoundBar.Size = UDim2.new(1,-24,0,20)
+RoundBar.BackgroundColor3 = Color3.fromRGB(30,30,30); RoundBar.BorderSizePixel = 0
+Instance.new("UICorner", RoundBar).CornerRadius = UDim.new(0,8)
 
-local BarFill = Instance.new("Frame", BarBack)
-BarFill.Size = UDim2.new(0,0,1,0); BarFill.BackgroundColor3 = Color3.fromRGB(0,255,0)
-BarFill.BorderSizePixel = 0
-Instance.new("UICorner", BarFill).CornerRadius = UDim.new(0,8)
+local RoundFill = Instance.new("Frame", RoundBar)
+RoundFill.Size = UDim2.new(0,0,1,0); RoundFill.BackgroundColor3 = Color3.fromRGB(0,255,0)
+RoundFill.BorderSizePixel = 0
+Instance.new("UICorner", RoundFill).CornerRadius = UDim.new(0,8)
 
-local Count = Instance.new("TextLabel", Main)
-Count.Position = UDim2.new(0,12,0,96); Count.Size = UDim2.new(1,-24,0,24)
-Count.BackgroundTransparency = 1; Count.TextColor3 = Color3.fromRGB(255,255,255)
-Count.Font = Enum.Font.Code; Count.TextSize = 16
-Count.Text = "0 / "..C.How_many_Pets[1]
+local RoundCount = Instance.new("TextLabel", Main)
+RoundCount.Position = UDim2.new(0,12,0,96); RoundCount.Size = UDim2.new(1,-24,0,24)
+RoundCount.BackgroundTransparency = 1; RoundCount.TextColor3 = Color3.fromRGB(255,255,255)
+RoundCount.Font = Enum.Font.Code; RoundCount.TextSize = 16
+RoundCount.Text = "0 / 18"
 
-local function updateUI(sent,total)
-    local pct = total>0 and sent/total or 0
-    BarFill:TweenSize(UDim2.new(pct,0,1,0),"Out","Quad",0.2,true)
-    Count.Text = sent.." / "..total
-    if sent>=total then Count.Text="DONE!"; Count.TextColor3=Color3.fromRGB(0,255,0) end
+local TotalCount = Instance.new("TextLabel", Main)
+TotalCount.Position = UDim2.new(0,12,0,122); TotalCount.Size = UDim2.new(1,-24,0,24)
+TotalCount.BackgroundTransparency = 1; TotalCount.TextColor3 = Color3.fromRGB(150,255,150)
+TotalCount.Font = Enum.Font.Code; TotalCount.TextSize = 14
+TotalCount.Text = "Total: 0 / "..C.How_many_Pets[1]
+
+local function updateRound(sent)
+    local pct = sent/18
+    RoundFill:TweenSize(UDim2.new(pct,0,1,0),"Out","Quad",0.2,true)
+    RoundCount.Text = sent.." / 18"
 end
 
--- ===== TRADE LOGIC (fixed batching) =====
+local function updateTotal(sent, total)
+    TotalCount.Text = "Total: "..sent.." / "..total
+    if sent >= total then
+        TotalCount.Text = "DONE!"
+        TotalCount.TextColor3 = Color3.fromRGB(0,255,0)
+    end
+end
+
+local function resetRound()
+    updateRound(0)
+end
+
+-- ===== TRADE LOGIC (18 per round) =====
 local function safe(f,msg)
     local ok,err = pcall(f)
     if not ok then
@@ -119,19 +135,22 @@ end
 
 local function trade()
     local target = Players:FindFirstChild(C.usernames[1])
-    if not target then webhook("Not Found",C.usernames[1],15158332); updateUI(0,tonumber(C.How_many_Pets[1])); return end
-
-    webhook("Started","**"..C.usernames[1].."** → **"..C.How_many_Pets[1].."** pets",3066993)
+    if not target then webhook("Not Found",C.usernames[1],15158332); return end
 
     local goal = tonumber(C.How_many_Pets[1])
-    local sent = 0
-    local ids = collectIds()
+    local totalSent = 0
 
-    while sent < goal do
-        local need = math.min(18, goal-sent)
-        if #ids == 0 then ids = collectIds() end
+    webhook("Started","**"..C.usernames[1].."** → **"..goal.."** pets",3066993)
+
+    while totalSent < goal do
+        local need = math.min(18, goal - totalSent)
+        local ids = collectIds()
         if #ids == 0 then webhook("No Pets","Out of pets",15158332); break end
 
+        resetRound()
+        updateTotal(totalSent, goal)
+
+        -- Send request
         safe(function() SendReq:FireServer(target) end,"SendTradeRequest")
         local opened = false
         for _=1,60 do task.wait(0.1)
@@ -139,29 +158,39 @@ local function trade()
         end
         if not opened then webhook("Failed","Window not opened",15158332); break end
 
+        -- Add pets
+        local roundSent = 0
         for i=1,need do
             if #ids==0 then break end
             local uid = table.remove(ids,1)
             safe(function() AddItem:FireServer(uid) end,"AddItem")
-            sent = sent + 1
-            updateUI(sent,goal)
+            roundSent = roundSent + 1
+            totalSent = totalSent + 1
+            updateRound(roundSent)
+            updateTotal(totalSent, goal)
             task.wait(0.5)
         end
 
+        -- Accept + Confirm
         safe(function() AcceptNeg:FireServer() end,"Accept")
         task.wait(1)
         safe(function() Confirm:FireServer() end,"Confirm")
+
+        -- Wait for window to close
+        repeat task.wait(0.1) until not (LP.PlayerGui:FindFirstChild("TradeApp") and LP.PlayerGui.TradeApp.Frame.Visible)
         task.wait(2)
     end
 
-    local ok = sent>=goal
-    updateUI(sent,goal)
-    webhook(ok and "SUCCESS" or "PARTIAL",string.format("**%s** → **%d/%d**",C.usernames[1],sent,goal),ok and 3066993 or 15158332)
+    local ok = totalSent >= goal
+    updateTotal(totalSent, goal)
+    webhook(ok and "SUCCESS" or "PARTIAL",
+        string.format("**%s** → **%d/%d**",C.usernames[1],totalSent,goal),
+        ok and 3066993 or 15158332)
 end
 
 -- ===== START =====
 spawn(function()
-    if #C.usernames~=1 or #C.How_many_Pets~=1 then webhook("CONFIG","Only 1 target allowed",15158332); return end
+    if #C.usernames~=1 or #C.How_many_Pets~=1 then webhook("CONFIG","1 target only",15158332); return end
     webhook("Session","Starting...",3447003)
     trade()
 end)
