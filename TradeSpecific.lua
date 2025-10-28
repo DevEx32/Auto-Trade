@@ -1,273 +1,179 @@
---// ADOPT ME AUTO-TRADE – DEHASH + GUI + WEBHOOK
+--// ADOPT ME AUTO-TRADE – HACKER UI + FIXED BATCHING
 --// DevEx32/Auto-Trade | TradeSpecific.lua
 
-if not getgenv().Config then
-    error("Set getgenv().Config before loading!")
-end
-
-local Config = getgenv().Config
+if not getgenv().Config then error("Set getgenv().Config first!") end
+local C = getgenv().Config
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
+local RS = game:GetService("ReplicatedStorage")
+local Http = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
-local LocalPlayer = Players.LocalPlayer
+local LP = Players.LocalPlayer
 
---------------------------------------------------------------------
--- 1. DE-HASH REMOTES (your exact code)
---------------------------------------------------------------------
+-- ===== DE-HASH (your original) =====
 local function dehash()
-    local function rename(name, remote) remote.Name = name end
-    table.foreach(
-        getupvalue(require(ReplicatedStorage.ClientModules.Core.RouterClient.RouterClient).init, 7),
-        rename
-    )
+    local rename = function(n,r) r.Name = n end
+    table.foreach(getupvalue(require(RS.ClientModules.Core.RouterClient.RouterClient).init,7),rename)
 end
 dehash()
 
-local API = ReplicatedStorage:WaitForChild("API")
-local SendTradeRequest   = API:WaitForChild("TradeAPI/SendTradeRequest")
-local AddItemToOffer     = API:WaitForChild("TradeAPI/AddItemToOffer")
-local AcceptNegotiation  = API:WaitForChild("TradeAPI/AcceptNegotiation")
-local ConfirmTrade       = API:WaitForChild("TradeAPI/ConfirmTrade")
+local API = RS:WaitForChild("API")
+local SendReq   = API:WaitForChild("TradeAPI/SendTradeRequest")
+local AddItem   = API:WaitForChild("TradeAPI/AddItemToOffer")
+local AcceptNeg = API:WaitForChild("TradeAPI/AcceptNegotiation")
+local Confirm   = API:WaitForChild("TradeAPI/ConfirmTrade")
 
---------------------------------------------------------------------
--- 2. SAFE WEBHOOK (all executors)
---------------------------------------------------------------------
-local function sendWebhook(title, desc, color)
-    if not Config.Webhook or Config.Webhook == "" then return end
+-- ===== WEBHOOK (all executors) =====
+local function webhook(t,d,c)
+    if not C.Webhook or C.Webhook == "" then return end
     spawn(function()
-        local payload = HttpService:JSONEncode({
-            embeds = {{title = title, description = desc, color = color or 65280,
-                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-                footer = {text = "Adopt Me Auto Trade | "..LocalPlayer.Name}}}
-        })
+        local p = Http:JSONEncode({embeds={{title=t,description=d,color=c or 65280,
+            timestamp=os.date("!%Y-%m-%dT%H:%M:%SZ"),footer={text="Adopt Me | "..LP.Name}}}})
         pcall(function()
             (syn and syn.request or request or http_request or HttpPost)({
-                Url = Config.Webhook,
-                Method = "POST",
-                Headers = {["Content-Type"]="application/json"},
-                Body = payload
+                Url=C.Webhook,Method="POST",
+                Headers={["Content-Type"]="application/json"},Body=p
             })
         end)
     end)
 end
 
---------------------------------------------------------------------
--- 3. INVENTORY + PET IDS
---------------------------------------------------------------------
-local function getInventory()
-    return require(ReplicatedStorage.ClientModules.Core.ClientData).get_data()[LocalPlayer.Name].inventory.pets
+-- ===== INVENTORY =====
+local function getInv()
+    return require(RS.ClientModules.Core.ClientData).get_data()[LP.Name].inventory.pets
 end
-
-local function collectPetIds()
+local function collectIds()
     local ids = {}
-    for _, pet in pairs(getInventory()) do
-        for _, kind in pairs(Config.pets_to_trade) do
-            if pet.kind == kind and (not Config.Neon or pet.neon) then
-                table.insert(ids, pet.unique)
-                break
+    for _,p in pairs(getInv()) do
+        for _,k in pairs(C.pets_to_trade) do
+            if p.kind==k and (not C.Neon or p.neon) then
+                table.insert(ids,p.unique); break
             end
         end
     end
     return ids
 end
 
---------------------------------------------------------------------
--- 4. SHREK GUI + PROGRESS BARS
---------------------------------------------------------------------
-local ScreenGui = Instance.new("ScreenGui", CoreGui)
-ScreenGui.ResetOnSpawn = false
+-- ===== HACKER UI (compact + gradient) =====
+local SG = Instance.new("ScreenGui", CoreGui); SG.ResetOnSpawn = false
+local Main = Instance.new("Frame", SG)
+Main.Size = UDim2.new(0, 320, 0, 140)
+Main.Position = UDim2.new(0.5, -160, 0.5, -70)
+Main.BackgroundTransparency = 0.2
+Main.BackgroundColor3 = Color3.fromRGB(10,10,10)
+Main.BorderSizePixel = 0
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0,12)
 
-local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0, 380, 0, 480)
-Frame.Position = UDim2.new(0.5, -190, 0.5, -240)
-Frame.BackgroundTransparency = 1
+-- Gradient
+local Grad = Instance.new("UIGradient", Main)
+Grad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0,255,0)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(0,100,255))
+}
+Grad.Rotation = 45
 
-local Shrek = Instance.new("ImageLabel", Frame)
-Shrek.Size = UDim2.new(1,0,1,0)
-Shrek.Image = "rbxassetid://146093819"
-Shrek.ScaleType = Enum.ScaleType.Crop
-
-local Title = Instance.new("TextLabel", Frame)
-Title.Size = UDim2.new(1,0,0,50)
-Title.BackgroundTransparency = 1
-Title.Text = "Adopt Me Auto Trade"
+local Title = Instance.new("TextLabel", Main)
+Title.Size = UDim2.new(1,0,0,36); Title.BackgroundTransparency = 1
+Title.Text = "AUTO TRADE"
 Title.TextColor3 = Color3.fromRGB(0,255,0)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 24
+Title.Font = Enum.Font.Code; Title.TextSize = 20
 
-local List = Instance.new("Frame", Frame)
-List.Size = UDim2.new(1,-20,1,-70)
-List.Position = UDim2.new(0,10,0,60)
-List.BackgroundTransparency = 0.7
-List.BackgroundColor3 = Color3.fromRGB(0,0,0)
+local Target = Instance.new("TextLabel", Main)
+Target.Position = UDim2.new(0,12,0,40); Target.Size = UDim2.new(1,-24,0,24)
+Target.BackgroundTransparency = 1; Target.TextXAlignment = Enum.TextXAlignment.Left
+Target.TextColor3 = Color3.fromRGB(200,255,200); Target.Font = Enum.Font.Code
+Target.Text = "Target: "..C.usernames[1]
 
-local UIList = Instance.new("UIListLayout", List)
-UIList.Padding = UDim.new(0,10)
+local BarBack = Instance.new("Frame", Main)
+BarBack.Position = UDim2.new(0,12,0,70); BarBack.Size = UDim2.new(1,-24,0,20)
+BarBack.BackgroundColor3 = Color3.fromRGB(30,30,30); BarBack.BorderSizePixel = 0
+Instance.new("UICorner", BarBack).CornerRadius = UDim.new(0,8)
 
-local progressBars = {}
-local function createEntry(user, goal)
-    local entry = Instance.new("Frame")
-    local nameLbl = Instance.new("TextLabel")
-    local barBack = Instance.new("Frame")
-    local barFill = Instance.new("Frame")
-    local countLbl = Instance.new("TextLabel")
+local BarFill = Instance.new("Frame", BarBack)
+BarFill.Size = UDim2.new(0,0,1,0); BarFill.BackgroundColor3 = Color3.fromRGB(0,255,0)
+BarFill.BorderSizePixel = 0
+Instance.new("UICorner", BarFill).CornerRadius = UDim.new(0,8)
 
-    entry.Parent = List
-    entry.Size = UDim2.new(1,-16,0,45)
-    entry.BackgroundTransparency = 1
+local Count = Instance.new("TextLabel", Main)
+Count.Position = UDim2.new(0,12,0,96); Count.Size = UDim2.new(1,-24,0,24)
+Count.BackgroundTransparency = 1; Count.TextColor3 = Color3.fromRGB(255,255,255)
+Count.Font = Enum.Font.Code; Count.TextSize = 16
+Count.Text = "0 / "..C.How_many_Pets[1]
 
-    nameLbl.Parent = entry
-    nameLbl.Size = UDim2.new(0.45,0,1,0)
-    nameLbl.BackgroundTransparency = 1
-    nameLbl.Text = user
-    nameLbl.TextColor3 = Color3.fromRGB(255,255,255)
-    nameLbl.Font = Enum.Font.Gotham
-
-    barBack.Parent = entry
-    barBack.Size = UDim2.new(0.35,0,0.5,0)
-    barBack.Position = UDim2.new(0.48,0,0.25,0)
-    barBack.BackgroundColor3 = Color3.fromRGB(50,50,50)
-
-    barFill.Parent = barBack
-    barFill.Size = UDim2.new(0,0,1,0)
-    barFill.BackgroundColor3 = Color3.fromRGB(0,255,0)
-
-    countLbl.Parent = entry
-    countLbl.Size = UDim2.new(0.5,0,1,0)
-    countLbl.Position = UDim2.new(0.5,0,0,0)
-    countLbl.BackgroundTransparency = 1
-    countLbl.Text = "0 / "..goal
-    countLbl.TextColor3 = Color3.fromRGB(200,200,200)
-    countLbl.Font = Enum.Font.Gotham
-    countLbl.TextXAlignment = Enum.TextXAlignment.Right
-
-    return {
-        update = function(sent,total)
-            local pct = total>0 and sent/total or 0
-            barFill:TweenSize(UDim2.new(pct,0,1,0),"Out","Quad",0.2,true)
-            countLbl.Text = sent.." / "..total
-            if sent>=total then
-                countLbl.Text = "DONE!"
-                countLbl.TextColor3 = Color3.fromRGB(0,255,0)
-            end
-        end
-    }
+local function updateUI(sent,total)
+    local pct = total>0 and sent/total or 0
+    BarFill:TweenSize(UDim2.new(pct,0,1,0),"Out","Quad",0.2,true)
+    Count.Text = sent.." / "..total
+    if sent>=total then Count.Text="DONE!"; Count.TextColor3=Color3.fromRGB(0,255,0) end
 end
 
---------------------------------------------------------------------
--- 5. TRADE ONE PLAYER (full pcall + error webhook)
---------------------------------------------------------------------
-local function safeCall(func, msg)
-    local ok, err = pcall(func)
+-- ===== TRADE LOGIC (fixed batching) =====
+local function safe(f,msg)
+    local ok,err = pcall(f)
     if not ok then
-        local txt = msg.."\n```lua\n"..tostring(err).."\n```"
-        warn(txt)
-        sendWebhook("ERROR", txt, 15158332)
+        local e = msg.."\n```lua\n"..tostring(err).."\n```"
+        warn(e); webhook("ERROR",e,15158332)
         return false
     end
     return true
 end
 
-local function tradePlayer(idx, username, goal)
-    local target = Players:FindFirstChild(username)
-    if not target then
-        sendWebhook("Not Found", username, 15158332)
-        progressBars[idx]:update(0, goal)
-        return false
-    end
+local function trade()
+    local target = Players:FindFirstChild(C.usernames[1])
+    if not target then webhook("Not Found",C.usernames[1],15158332); updateUI(0,tonumber(C.How_many_Pets[1])); return end
 
-    sendWebhook("Trading", "**"..username.."** → **"..goal.."** pets", 3066993)
+    webhook("Started","**"..C.usernames[1].."** → **"..C.How_many_Pets[1].."** pets",3066993)
 
+    local goal = tonumber(C.How_many_Pets[1])
     local sent = 0
-    local allIds = collectPetIds()
+    local ids = collectIds()
 
     while sent < goal do
-        local need = math.min(18, goal - sent)
-        if #allIds == 0 then allIds = collectPetIds() end
-        if #allIds == 0 then
-            sendWebhook("No Pets", "Ran out for **"..username.."**", 15158332)
-            break
-        end
+        local need = math.min(18, goal-sent)
+        if #ids == 0 then ids = collectIds() end
+        if #ids == 0 then webhook("No Pets","Out of pets",15158332); break end
 
-        -- send request
-        if not safeCall(function() SendTradeRequest:FireServer(target) end,
-            "SendTradeRequest failed for **"..username.."**") then break end
-
-        -- wait for window
+        safe(function() SendReq:FireServer(target) end,"SendTradeRequest")
         local opened = false
-        for _ = 1,60 do
-            task.wait(0.1)
-            if LocalPlayer.PlayerGui:FindFirstChild("TradeApp") and LocalPlayer.PlayerGui.TradeApp.Frame.Visible then
-                opened = true; break
-            end
+        for _=1,60 do task.wait(0.1)
+            if LP.PlayerGui:FindFirstChild("TradeApp") and LP.PlayerGui.TradeApp.Frame.Visible then opened=true; break end
         end
-        if not opened then
-            sendWebhook("Trade Failed", "Window never opened for **"..username.."**", 15158332)
-            break
-        end
+        if not opened then webhook("Failed","Window not opened",15158332); break end
 
-        -- add pets
-        for i = 1,need do
-            if #allIds == 0 then break end
-            local uid = table.remove(allIds,1)
-            if not safeCall(function() AddItemToOffer:FireServer(uid) end,
-                "AddItemToOffer failed (uid: "..tostring(uid)..")") then break end
+        for i=1,need do
+            if #ids==0 then break end
+            local uid = table.remove(ids,1)
+            safe(function() AddItem:FireServer(uid) end,"AddItem")
             sent = sent + 1
-            progressBars[idx]:update(sent, goal)
+            updateUI(sent,goal)
             task.wait(0.5)
         end
 
-        -- accept + confirm
-        safeCall(function() AcceptNegotiation:FireServer() end, "AcceptNegotiation failed")
+        safe(function() AcceptNeg:FireServer() end,"Accept")
         task.wait(1)
-        safeCall(function() ConfirmTrade:FireServer() end, "ConfirmTrade failed")
+        safe(function() Confirm:FireServer() end,"Confirm")
         task.wait(2)
     end
 
-    local ok = sent >= goal
-    progressBars[idx]:update(sent, goal)
-    sendWebhook(ok and "SUCCESS" or "PARTIAL",
-        string.format("**%s** → **%d/%d**", username, sent, goal),
-        ok and 3066993 or 15158332)
-    return ok
+    local ok = sent>=goal
+    updateUI(sent,goal)
+    webhook(ok and "SUCCESS" or "PARTIAL",string.format("**%s** → **%d/%d**",C.usernames[1],sent,goal),ok and 3066993 or 15158332)
 end
 
---------------------------------------------------------------------
--- 6. MAIN LOOP
---------------------------------------------------------------------
+-- ===== START =====
 spawn(function()
-    if #Config.usernames ~= #Config.How_many_Pets then
-        sendWebhook("CONFIG ERROR", "usernames ≠ How_many_Pets", 15158332)
-        return
-    end
-
-    sendWebhook("Session Started",
-        "Executor: **"..LocalPlayer.Name.."**\nTargets: **"..#Config.usernames.."**", 3447003)
-
-    for i, user in ipairs(Config.usernames) do
-        local goal = tonumber(Config.How_many_Pets[i])
-        if goal and goal > 0 then
-            progressBars[i] = createEntry(user, goal)
-            tradePlayer(i, user, goal)
-            task.wait(3)
-        end
-    end
-
-    sendWebhook("Session Complete",
-        "All players processed.", 10181046)
+    if #C.usernames~=1 or #C.How_many_Pets~=1 then webhook("CONFIG","Only 1 target allowed",15158332); return end
+    webhook("Session","Starting...",3447003)
+    trade()
 end)
 
---------------------------------------------------------------------
--- 7. AUTO-ACCEPT (safety)
---------------------------------------------------------------------
+-- Auto-accept
 spawn(function()
     while task.wait(1) do
-        local gui = LocalPlayer.PlayerGui:FindFirstChild("TradeApp")
-        if gui and gui.Frame.Visible then
-            pcall(AcceptNegotiation.FireServer, AcceptNegotiation)
+        local g = LP.PlayerGui:FindFirstChild("TradeApp")
+        if g and g.Frame.Visible then
+            pcall(AcceptNeg.FireServer,AcceptNeg)
             task.wait(1)
-            pcall(ConfirmTrade.FireServer, ConfirmTrade)
+            pcall(Confirm.FireServer,Confirm)
         end
     end
 end)
