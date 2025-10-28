@@ -1,4 +1,4 @@
---// ADOPT ME AUTO-TRADE – 18-PET BATCH + UI RESET
+--// ADOPT ME AUTO-TRADE – UI ONLY MOVES ON ADD + TRADE DETECTION
 --// DevEx32/Auto-Trade | TradeSpecific.lua
 
 if not getgenv().Config then error("Set getgenv().Config!") end
@@ -9,7 +9,7 @@ local Http = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local LP = Players.LocalPlayer
 
--- ===== DE-HASH =====
+-- ===== DE-HASH REMOTES =====
 local function dehash()
     local rename = function(n,r) r.Name = n end
     table.foreach(getupvalue(require(RS.ClientModules.Core.RouterClient.RouterClient).init,7),rename)
@@ -53,7 +53,7 @@ local function collectIds()
     return ids
 end
 
--- ===== HACKER UI (per round: 0/18) =====
+-- ===== HACKER UI (Round: 0/18, Total: X/30) =====
 local SG = Instance.new("ScreenGui", CoreGui); SG.ResetOnSpawn = false
 local Main = Instance.new("Frame", SG)
 Main.Size = UDim2.new(0, 320, 0, 160)
@@ -122,7 +122,25 @@ local function resetRound()
     updateRound(0)
 end
 
--- ===== TRADE LOGIC (18 per round) =====
+-- ===== TRADE DETECTION + UI ONLY ON ADD =====
+local function waitForTradeOpen()
+    for _ = 1, 60 do
+        task.wait(0.1)
+        local app = LP.PlayerGui:FindFirstChild("TradeApp")
+        if app and app.Frame.Visible then return true end
+    end
+    return false
+end
+
+local function waitForTradeClose()
+    for _ = 1, 100 do
+        task.wait(0.1)
+        local app = LP.PlayerGui:FindFirstChild("TradeApp")
+        if not app or not app.Frame.Visible then return true end
+    end
+    return false
+end
+
 local function safe(f,msg)
     local ok,err = pcall(f)
     if not ok then
@@ -150,35 +168,38 @@ local function trade()
         resetRound()
         updateTotal(totalSent, goal)
 
-        -- Send request
+        -- SEND REQUEST
         safe(function() SendReq:FireServer(target) end,"SendTradeRequest")
-        local opened = false
-        for _=1,60 do task.wait(0.1)
-            if LP.PlayerGui:FindFirstChild("TradeApp") and LP.PlayerGui.TradeApp.Frame.Visible then opened=true; break end
+        if not waitForTradeOpen() then
+            webhook("Failed","Trade window never opened",15158332)
+            break
         end
-        if not opened then webhook("Failed","Window not opened",15158332); break end
 
-        -- Add pets
+        -- ADD PETS (UI ONLY MOVES HERE)
         local roundSent = 0
-        for i=1,need do
-            if #ids==0 then break end
-            local uid = table.remove(ids,1)
+        for i = 1, need do
+            if #ids == 0 then break end
+            local uid = table.remove(ids, 1)
             safe(function() AddItem:FireServer(uid) end,"AddItem")
             roundSent = roundSent + 1
             totalSent = totalSent + 1
-            updateRound(roundSent)
-            updateTotal(totalSent, goal)
+            updateRound(roundSent)           -- ONLY HERE
+            updateTotal(totalSent, goal)     -- Update total
             task.wait(0.5)
         end
 
-        -- Accept + Confirm
+        -- ACCEPT + CONFIRM (NO UI CHANGE)
         safe(function() AcceptNeg:FireServer() end,"Accept")
         task.wait(1)
         safe(function() Confirm:FireServer() end,"Confirm")
 
-        -- Wait for window to close
-        repeat task.wait(0.1) until not (LP.PlayerGui:FindFirstChild("TradeApp") and LP.PlayerGui.TradeApp.Frame.Visible)
-        task.wait(2)
+        -- WAIT FOR TRADE TO CLOSE (DETECTED)
+        if not waitForTradeClose() then
+            webhook("Failed","Trade window stuck",15158332)
+            break
+        end
+
+        task.wait(2)  -- cooldown
     end
 
     local ok = totalSent >= goal
@@ -195,7 +216,7 @@ spawn(function()
     trade()
 end)
 
--- Auto-accept
+-- Auto-accept (backup)
 spawn(function()
     while task.wait(1) do
         local g = LP.PlayerGui:FindFirstChild("TradeApp")
