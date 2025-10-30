@@ -1,4 +1,4 @@
---// ADOPT ME AUTO-TRADE – FIXED LOOP + PET ADD + WEBHOOK TEST
+--// ADOPT ME AUTO-TRADE – FIXED MULTI-ROUND LOOP + DETAILED WEBHOOK
 --// DevEx32/Auto-Trade | TradeSpecific.lua
 
 if not getgenv().Config then error("Set getgenv().Config first!") end
@@ -26,9 +26,8 @@ local AddItem   = API:WaitForChild("TradeAPI/AddItemToOffer")
 local AcceptNeg = API:WaitForChild("TradeAPI/AcceptNegotiation")
 local Confirm   = API:WaitForChild("TradeAPI/ConfirmTrade")
 
--- ===== WEBHOOK WITH TEST + FALLBACK =====
+-- ===== DETAILED WEBHOOK =====
 local function webhook(title, desc, color)
-    print("[WEBHOOK] " .. title .. ": " .. desc) -- Console fallback
     if not C.Webhook or C.Webhook == "" then return end
     spawn(function()
         local payload = Http:JSONEncode({
@@ -41,7 +40,6 @@ local function webhook(title, desc, color)
             }}
         })
         pcall(function()
-            -- Try PostAsync first, then request
             Http:PostAsync(C.Webhook, payload, Enum.HttpContentType.ApplicationJson)
         end)
         pcall(function()
@@ -58,9 +56,16 @@ end
 -- Test webhook at start
 webhook("SCRIPT LOADED", "Starting auto-trade session. Check console if no webhook.", 3447003)
 
--- ===== INVENTORY =====
+-- ===== INVENTORY + PET NAME =====
 local function getInv()
     return require(RS.ClientModules.Core.ClientData).get_data()[LP.Name].inventory.pets
+end
+
+local function getPetName(uid)
+    for _, p in pairs(getInv()) do
+        if p.unique == uid then return p.kind end
+    end
+    return "Unknown"
 end
 
 local function collectIds()
@@ -73,7 +78,6 @@ local function collectIds()
             end
         end
     end
-    print("[DEBUG] Collected " .. #ids .. " pet IDs")
     webhook("INVENTORY REFRESH", "Found **" .. #ids .. "** pets for trade", 3447003)
     return ids
 end
@@ -83,7 +87,7 @@ local function safe(f, msg)
     local ok, err = pcall(f)
     if not ok then
         local e = msg .. "\n```lua\n" .. tostring(err) .. "\n```"
-        print("[ERROR] " .. e)
+        warn(e)
         webhook("ERROR", e, 15158332)
         return false
     end
@@ -92,31 +96,21 @@ end
 
 -- ===== WAIT FOR WINDOW =====
 local function waitOpen()
-    print("[DEBUG] Waiting for trade window to open...")
     for i = 1, 80 do
         task.wait(0.1)
         local app = LP.PlayerGui:FindFirstChild("TradeApp")
-        if app and app.Frame and app.Frame.Visible then
-            print("[DEBUG] Trade window opened")
-            return true
-        end
+        if app and app.Frame and app.Frame.Visible then return true end
     end
-    print("[DEBUG] Trade window timed out")
     webhook("WAIT FAILED", "Trade window did not open", 15158332)
     return false
 end
 
 local function waitClose()
-    print("[DEBUG] Waiting for trade window to close...")
     for i = 1, 120 do
         task.wait(0.1)
         local app = LP.PlayerGui:FindFirstChild("TradeApp")
-        if not app or not app.Frame or not app.Frame.Visible then
-            print("[DEBUG] Trade window closed")
-            return true
-        end
+        if not app or not app.Frame or not app.Frame.Visible then return true end
     end
-    print("[DEBUG] Trade window close timed out")
     webhook("WAIT FAILED", "Trade window did not close", 15158332)
     return false
 end
@@ -133,7 +127,6 @@ local function tradePlayer(username, goal)
     webhook("TARGET STARTED", "Trading **" .. username .. "**\nGoal: **" .. goal .. "** pets", 3447003)
 
     while totalSent < goal do
-        print("[DEBUG] Starting new round for " .. username .. " (need " .. (goal - totalSent) .. ")")
         local need = math.min(18, goal - totalSent)
         local ids = collectIds()
         if #ids == 0 then
@@ -148,10 +141,7 @@ local function tradePlayer(username, goal)
         -- ADD PETS
         local roundSent = 0
         for i = 1, need do
-            if #ids == 0 then
-                webhook("ROUND PARTIAL", "Ran out mid-round for **" .. username .. "**", 15158332)
-                break
-            end
+            if #ids == 0 then break end
             local uid = table.remove(ids, 1)
             local petName = getPetName(uid)
 
@@ -161,19 +151,18 @@ local function tradePlayer(username, goal)
                     added = true
                     break
                 end
-                task.wait(1) -- longer retry delay
+                task.wait(1)
             end
 
             if added then
                 roundSent += 1
                 totalSent += 1
-                print("[DEBUG] Added pet " .. roundSent .. "/" .. need .. " (total " .. totalSent .. "/" .. goal .. ")")
                 webhook("PET ADDED", string.format("**%s** → **%s** (`%s`)\nRound: **%d/%d** | Total: **%d/%d**", username, petName, uid, roundSent, need, totalSent, goal), 3066993)
             else
                 webhook("ADD FAILED", "Could not add pet: **" .. petName .. "** (`" .. uid .. "`)", 15158332)
             end
 
-            task.wait(0.8) -- stable add delay
+            task.wait(0.8)
         end
 
         -- ROUND SUMMARY
@@ -184,9 +173,9 @@ local function tradePlayer(username, goal)
         task.wait(1.5)
         safe(function() Confirm:FireServer() end, "ConfirmTrade failed")
 
-        -- WAIT FOR CLOSE + REFRESH
+        -- WAIT FOR CLOSE + REFRESH DELAY
         if not waitClose() then break end
-        task.wait(10) -- CRITICAL: inventory update delay
+        task.wait(12) -- increased for inventory sync
     end
 
     local success = totalSent >= goal
@@ -208,7 +197,7 @@ spawn(function()
             if tradePlayer(user, goal) then
                 successCount += 1
             end
-            task.wait(5) -- between players
+            task.wait(5)
         else
             webhook("INVALID GOAL", "**" .. user .. "** → `" .. tostring(C.How_many_Pets[i]) .. "`", 15158332)
         end
