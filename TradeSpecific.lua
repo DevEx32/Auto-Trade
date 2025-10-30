@@ -1,4 +1,4 @@
---// ADOPT ME AUTO-TRADE – MULTI-TARGET + ULTRA-DETAILED WEBHOOK LOGS
+--// ADOPT ME AUTO-TRADE – MULTI-TARGET + DETAILED WEBHOOK + FIXED LOOP
 --// DevEx32/Auto-Trade | TradeSpecific.lua
 
 if not getgenv().Config then error("Set getgenv().Config first!") end
@@ -50,7 +50,7 @@ local function webhook(title, desc, color)
     end)
 end
 
--- ===== INVENTORY + PET NAME LOOKUP =====
+-- ===== INVENTORY + PET NAME =====
 local function getInv()
     return require(RS.ClientModules.Core.ClientData).get_data()[LP.Name].inventory.pets
 end
@@ -72,10 +72,11 @@ local function collectIds()
             end
         end
     end
+    webhook("INVENTORY CHECK", "Available pets: **" .. #ids .. "**", 3447003)
     return ids
 end
 
--- ===== SAFE + ERROR LOG =====
+-- ===== SAFE + ERROR =====
 local function safe(f, msg)
     local ok, err = pcall(f)
     if not ok then
@@ -87,13 +88,14 @@ local function safe(f, msg)
     return true
 end
 
--- ===== WAIT FOR TRADE WINDOW =====
+-- ===== WAIT FOR WINDOW =====
 local function waitOpen()
     for i = 1, 80 do
         task.wait(0.1)
         local app = LP.PlayerGui:FindFirstChild("TradeApp")
         if app and app.Frame and app.Frame.Visible then return true end
     end
+    webhook("WAIT FAILED", "Trade window did not open", 15158332)
     return false
 end
 
@@ -103,10 +105,11 @@ local function waitClose()
         local app = LP.PlayerGui:FindFirstChild("TradeApp")
         if not app or not app.Frame or not app.Frame.Visible then return true end
     end
+    webhook("WAIT FAILED", "Trade window did not close", 15158332)
     return false
 end
 
--- ===== TRADE ONE PLAYER (DETAILED LOGS) =====
+-- ===== TRADE ONE PLAYER =====
 local function tradePlayer(username, goal)
     local target = Players:FindFirstChild(username)
     if not target then
@@ -127,12 +130,9 @@ local function tradePlayer(username, goal)
 
         -- SEND TRADE
         if not safe(function() SendReq:FireServer(target) end, "SendTradeRequest failed") then break end
-        if not waitOpen() then
-            webhook("TRADE FAILED", "Window did not open for **" .. username .. "**", 15158332)
-            break
-        end
+        if not waitOpen() then break end
 
-        -- ADD PETS (PER-PET LOG)
+        -- ADD PETS
         local roundSent = 0
         for i = 1, need do
             if #ids == 0 then break end
@@ -141,7 +141,7 @@ local function tradePlayer(username, goal)
 
             local added = false
             for attempt = 1, 3 do
-                if safe(function() AddItem:FireServer(uid) end, "AddItem failed") then
+                if safe(function() AddItem:FireServer(uid) end, "AddItem failed (attempt "..attempt..")") then
                     added = true
                     break
                 end
@@ -164,7 +164,7 @@ local function tradePlayer(username, goal)
 
         -- ROUND SUMMARY
         webhook("ROUND COMPLETE",
-            string.format("**%s** → **%d/18** pets sent\n**Total Progress: %d/%d**", username, roundSent, totalSent, goal),
+            string.format("**%s** → **%d/%d** pets sent\n**Total Progress: %d/%d**", username, roundSent, need, totalSent, goal),
             10181046)
 
         -- ACCEPT + CONFIRM
@@ -172,13 +172,9 @@ local function tradePlayer(username, goal)
         task.wait(1.2)
         safe(function() Confirm:FireServer() end, "ConfirmTrade failed")
 
-        -- WAIT FOR CLOSE
-        if not waitClose() then
-            webhook("TRADE STUCK", "Window did not close for **" .. username .. "**", 15158332)
-            break
-        end
-
-        task.wait(2.5)
+        -- WAIT FOR CLOSE + REFRESH DELAY
+        if not waitClose() then break end
+        task.wait(5) -- extra delay for inventory update
     end
 
     local success = totalSent >= goal
