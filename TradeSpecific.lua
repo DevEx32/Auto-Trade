@@ -1,219 +1,197 @@
---// ADOPT ME AUTO-TRADE – FIXED MULTI-ROUND LOOP + DETAILED WEBHOOK
---// DevEx32/Auto-Trade | TradeSpecific.lua
+--[[ 
+    TradeSpecific.lua
+    Made for Adopt Me auto trading with specific pet amounts per target.
 
-if not getgenv().Config then error("Set getgenv().Config first!") end
-local C = getgenv().Config
+    ⚙️ Requires:
+    getgenv().Config = {
+        ["usernames"]     = {"Target1","Target2","Target3"},
+        ["pets_to_trade"] = {"aztec_egg_2025_ehecatl"},
+        ["How_many_Pets"] = {"24","40","60"},
+        ["Neon"]          = false,
+        ["Webhook"]       = "https://discord.com/api/webhooks/your_webhook_here"
+    }
+
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/<YourUser>/<YourRepo>/main/TradeSpecific.lua"))()
+]]
+
+repeat task.wait() until game:IsLoaded()
+
 local Players = game:GetService("Players")
-local RS = game:GetService("ReplicatedStorage")
-local Http = game:GetService("HttpService")
-local LP = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
+local playerName = player and player.Name or "Player"
+local API = ReplicatedStorage:WaitForChild("API")
+local TradeSend = API:WaitForChild("TradeAPI/SendTradeRequest")
+local AddItem = API:WaitForChild("TradeAPI/AddItemToOffer")
+local Accept = API:WaitForChild("TradeAPI/AcceptNegotiation")
+local Confirm = API:WaitForChild("TradeAPI/ConfirmTrade")
+local Data = require(ReplicatedStorage.ClientModules.Core.ClientData)
+local RouterClient = require(ReplicatedStorage.ClientModules.Core.RouterClient.RouterClient)
 
--- ===== CONFIG VALIDATION =====
-if #C.usernames ~= #C.How_many_Pets then
-    error("usernames and How_many_Pets must match in length!")
-end
-
--- ===== DE-HASH REMOTES =====
+-- 🔓 Dehash remotes (from original source)
 local function dehash()
-    local rename = function(n,r) r.Name = n end
-    table.foreach(getupvalue(require(RS.ClientModules.Core.RouterClient.RouterClient).init,7),rename)
-end
-dehash()
-
-local API = RS:WaitForChild("API", 10)
-local SendReq   = API:WaitForChild("TradeAPI/SendTradeRequest")
-local AddItem   = API:WaitForChild("TradeAPI/AddItemToOffer")
-local AcceptNeg = API:WaitForChild("TradeAPI/AcceptNegotiation")
-local Confirm   = API:WaitForChild("TradeAPI/ConfirmTrade")
-
--- ===== DETAILED WEBHOOK =====
-local function webhook(title, desc, color)
-    if not C.Webhook or C.Webhook == "" then return end
-    spawn(function()
-        local payload = Http:JSONEncode({
-            embeds = {{
-                title = title,
-                description = desc,
-                color = color or 65280,
-                timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ"),
-                footer = {text = "Adopt Me Auto Trade • " .. LP.Name}
-            }}
-        })
-        pcall(function()
-            Http:PostAsync(C.Webhook, payload, Enum.HttpContentType.ApplicationJson)
-        end)
-        pcall(function()
-            (syn and syn.request or request or http_request or HttpPost)({
-                Url = C.Webhook,
-                Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = payload
-            })
-        end)
-    end)
-end
-
--- Test webhook at start
-webhook("SCRIPT LOADED", "Starting auto-trade session. Check console if no webhook.", 3447003)
-
--- ===== INVENTORY + PET NAME =====
-local function getInv()
-    return require(RS.ClientModules.Core.ClientData).get_data()[LP.Name].inventory.pets
-end
-
-local function getPetName(uid)
-    for _, p in pairs(getInv()) do
-        if p.unique == uid then return p.kind end
+    local function rename(remotename, hashedremote)
+        hashedremote.Name = remotename
     end
-    return "Unknown"
+    local ok, uv = pcall(function()
+        return getupvalue(RouterClient.init, 7)
+    end)
+    if ok and uv then
+        pcall(function()
+            for _, v in pairs(uv) do rename(_, v) end
+        end)
+    end
+end
+pcall(dehash)
+
+-- ⚙️ Config
+local cfg = getgenv().Config or {}
+local usernames = cfg.usernames or {}
+local pets_to_trade = cfg.pets_to_trade or {}
+local how_many_raw = cfg.How_many_Pets or {}
+local WEBHOOK_URL = cfg.Webhook or nil
+local MAX_PER_TRADE = 18
+
+-- 📦 Convert string numbers to real numbers
+local how_many = {}
+for i = 1, #usernames do
+    local n = tonumber(how_many_raw[i] or how_many_raw[1]) or 0
+    how_many[i] = n
 end
 
-local function collectIds()
-    local ids = {}
-    for _, p in pairs(getInv()) do
-        for _, k in pairs(C.pets_to_trade) do
-            if p.kind == k and (not C.Neon or p.neon) then
-                table.insert(ids, p.unique)
-                break
+-- 🌐 Universal webhook function (works on any executor)
+local function send_webhook(content)
+    if not WEBHOOK_URL or WEBHOOK_URL == "" then return end
+    local payload = {
+        embeds = {{
+            title = "Auto Trade Logs",
+            description = tostring(content),
+            color = 3447003,
+            footer = { text = "TradeSpecific.lua" }
+        }}
+    }
+    local json = HttpService:JSONEncode(payload)
+    local headers = {["Content-Type"] = "application/json"}
+
+    local methods = {
+        function() if syn and syn.request then return syn.request({Url=WEBHOOK_URL, Method="POST", Headers=headers, Body=json}) end end,
+        function() if http_request then return http_request({Url=WEBHOOK_URL, Method="POST", Headers=headers, Body=json}) end end,
+        function() if request then return request({Url=WEBHOOK_URL, Method="POST", Headers=headers, Body=json}) end end,
+        function() pcall(function() HttpService:PostAsync(WEBHOOK_URL, json, Enum.HttpContentType.ApplicationJson) end) end
+    }
+
+    for _, m in ipairs(methods) do
+        local ok = pcall(m)
+        if ok then break end
+    end
+end
+
+local function log(msg)
+    print("[TradeSpecific] " .. tostring(msg))
+    send_webhook(msg)
+end
+
+-- 🐾 Collect all pet uniques
+local function get_all_matching_pets()
+    local pets = {}
+    local ok, inv = pcall(function()
+        return Data.get_data()[playerName].inventory.pets
+    end)
+    if not ok or not inv then return pets end
+    for _, pet in pairs(inv) do
+        for _, kind in ipairs(pets_to_trade) do
+            if pet.kind == kind then
+                table.insert(pets, pet.unique)
             end
         end
     end
-    webhook("INVENTORY REFRESH", "Found **" .. #ids .. "** pets for trade", 3447003)
-    return ids
+    return pets
 end
 
--- ===== SAFE + ERROR =====
-local function safe(f, msg)
-    local ok, err = pcall(f)
-    if not ok then
-        local e = msg .. "\n```lua\n" .. tostring(err) .. "\n```"
-        warn(e)
-        webhook("ERROR", e, 15158332)
-        return false
-    end
+-- 📨 Send trade
+local function send_trade(target)
+    local p = Players:FindFirstChild(target)
+    if not p then log("❌ Target not found: " .. tostring(target)) return false end
+    pcall(function() TradeSend:FireServer(p) end)
+    log("📤 Trade request sent to " .. target)
     return true
 end
 
--- ===== WAIT FOR WINDOW =====
-local function waitOpen()
-    for i = 1, 80 do
-        task.wait(0.1)
-        local app = LP.PlayerGui:FindFirstChild("TradeApp")
-        if app and app.Frame and app.Frame.Visible then return true end
+-- 💰 Add items to trade
+local function add_items(uniques)
+    for _, u in ipairs(uniques) do
+        pcall(function() AddItem:FireServer(u) end)
+        task.wait(0.2)
     end
-    webhook("WAIT FAILED", "Trade window did not open", 15158332)
+end
+
+-- ✅ Accept & confirm
+local function accept_confirm()
+    pcall(function() Accept:FireServer() end)
+    task.wait(1)
+    pcall(function() Confirm:FireServer() end)
+end
+
+-- 👀 Wait for trade UI
+local function wait_for_trade_ui(timeout)
+    local t = 0
+    timeout = timeout or 10
+    while t < timeout do
+        if player.PlayerGui:FindFirstChild("TradeApp") and player.PlayerGui.TradeApp.Frame.Visible then
+            return true
+        end
+        task.wait(0.3)
+        t += 0.3
+    end
     return false
 end
 
-local function waitClose()
-    for i = 1, 120 do
-        task.wait(0.1)
-        local app = LP.PlayerGui:FindFirstChild("TradeApp")
-        if not app or not app.Frame or not app.Frame.Visible then return true end
+-- 🚀 Main process
+local function trade_all_targets()
+    local available = get_all_matching_pets()
+    log("🔍 Found " .. #available .. " matching pets.")
+
+    for i, target in ipairs(usernames) do
+        local needed = how_many[i] or 0
+        if needed <= 0 then log("Skipping " .. target) continue end
+
+        log(("➡️ Moving Target %d: %s (Need %d pets)"):format(i, target, needed))
+
+        while needed > 0 do
+            if #available <= 0 then
+                available = get_all_matching_pets()
+                if #available <= 0 then log("No more pets available!") return end
+            end
+
+            local trade_count = math.min(needed, MAX_PER_TRADE, #available)
+            local batch = {}
+            for j = 1, trade_count do
+                table.insert(batch, table.remove(available, 1))
+            end
+
+            send_trade(target)
+            if not wait_for_trade_ui(8) then
+                log("⚠️ Trade UI not open for " .. target)
+                for _, u in ipairs(batch) do table.insert(available, u) end
+                task.wait(2)
+                continue
+            end
+
+            add_items(batch)
+            log(("🧩 Added %d pets to trade with %s"):format(#batch, target))
+            accept_confirm()
+
+            task.wait(6)
+            needed -= #batch
+            log(("✅ Batch done for %s (%d left)"):format(target, needed))
+        end
+
+        log("🎯 Done trading " .. target)
+        task.wait(1)
     end
-    webhook("WAIT FAILED", "Trade window did not close", 15158332)
-    return false
+
+    log("🏁 All targets completed.")
 end
 
--- ===== TRADE ONE PLAYER =====
-local function tradePlayer(username, goal)
-    local target = Players:FindFirstChild(username)
-    if not target then
-        webhook("PLAYER NOT FOUND", "Target: **" .. username .. "**", 15158332)
-        return false
-    end
-
-    local totalSent = 0
-    webhook("TARGET STARTED", "Trading **" .. username .. "**\nGoal: **" .. goal .. "** pets", 3447003)
-
-    while totalSent < goal do
-        local need = math.min(18, goal - totalSent)
-        local ids = collectIds()
-        if #ids == 0 then
-            webhook("NO PETS LEFT", "Out of **" .. table.concat(C.pets_to_trade, ", ") .. "** for **" .. username .. "**", 15158332)
-            break
-        end
-
-        -- SEND TRADE
-        if not safe(function() SendReq:FireServer(target) end, "SendTradeRequest failed") then break end
-        if not waitOpen() then break end
-
-        -- ADD PETS
-        local roundSent = 0
-        for i = 1, need do
-            if #ids == 0 then break end
-            local uid = table.remove(ids, 1)
-            local petName = getPetName(uid)
-
-            local added = false
-            for attempt = 1, 3 do
-                if safe(function() AddItem:FireServer(uid) end, "AddItem failed (attempt "..attempt..")") then
-                    added = true
-                    break
-                end
-                task.wait(1)
-            end
-
-            if added then
-                roundSent += 1
-                totalSent += 1
-                webhook("PET ADDED", string.format("**%s** → **%s** (`%s`)\nRound: **%d/%d** | Total: **%d/%d**", username, petName, uid, roundSent, need, totalSent, goal), 3066993)
-            else
-                webhook("ADD FAILED", "Could not add pet: **" .. petName .. "** (`" .. uid .. "`)", 15158332)
-            end
-
-            task.wait(0.8)
-        end
-
-        -- ROUND SUMMARY
-        webhook("ROUND COMPLETE", string.format("**%s** → **%d/%d** pets sent\n**Total Progress: %d/%d**", username, roundSent, need, totalSent, goal), 10181046)
-
-        -- ACCEPT + CONFIRM
-        safe(function() AcceptNeg:FireServer() end, "AcceptNegotiation failed")
-        task.wait(1.5)
-        safe(function() Confirm:FireServer() end, "ConfirmTrade failed")
-
-        -- WAIT FOR CLOSE + REFRESH DELAY
-        if not waitClose() then break end
-        task.wait(12) -- increased for inventory sync
-    end
-
-    local success = totalSent >= goal
-    webhook(success and "TARGET SUCCESS" or "TARGET PARTIAL", string.format("**%s** → **%d/%d** pets delivered", username, totalSent, goal), success and 3066993 or 15158332)
-    return success
-end
-
--- ===== MAIN LOOP =====
-spawn(function()
-    local totalTargets = #C.usernames
-    local successCount = 0
-
-    webhook("SESSION STARTED", string.format("Executor: **%s**\nTargets: **%d**\nPets: **%s**", LP.Name, totalTargets, table.concat(C.pets_to_trade, ", ")), 3447003)
-
-    for i, user in ipairs(C.usernames) do
-        local goal = tonumber(C.How_many_Pets[i])
-        if goal and goal > 0 then
-            webhook("SWITCHING TARGET", "Moving to **" .. user .. "** → **" .. goal .. "** pets", 15844367)
-            if tradePlayer(user, goal) then
-                successCount += 1
-            end
-            task.wait(5)
-        else
-            webhook("INVALID GOAL", "**" .. user .. "** → `" .. tostring(C.How_many_Pets[i]) .. "`", 15158332)
-        end
-    end
-
-    webhook("SESSION COMPLETE", string.format("**%d/%d** targets successful\n**All trades finished**", successCount, totalTargets), 3066993)
-end)
-
--- ===== AUTO-ACCEPT =====
-spawn(function()
-    while task.wait(1) do
-        local g = LP.PlayerGui:FindFirstChild("TradeApp")
-        if g and g.Frame and g.Frame.Visible then
-            pcall(AcceptNeg.FireServer, AcceptNeg)
-            task.wait(1)
-            pcall(Confirm.FireServer, Confirm)
-        end
-    end
-end)
+pcall(trade_all_targets)
